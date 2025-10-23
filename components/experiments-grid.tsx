@@ -1,12 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { api } from "@/lib/api"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ExperimentDialog } from "./experiment-dialog"
+import { Experiment, ExperimentStatus } from "@/lib/api/types"
 import {
   FlaskConical,
   Search,
@@ -18,112 +20,23 @@ import {
   XCircle,
   PlayCircle,
   PauseCircle,
+  HelpCircle,
 } from "lucide-react"
 
-type ExperimentStatus = "running" | "completed" | "failed" | "paused"
+// Убираем моки - используем реальные данные из API
 
-interface Experiment {
-  id: string
-  name: string
-  hypothesisId: string
-  hypothesisTitle: string
-  status: ExperimentStatus
-  progress: number
-  accuracy?: number
-  startDate: string
-  duration: string
-  owner: string
-  gpuHours: number
-  cost: number
-}
-
-const mockExperiments: Experiment[] = [
-  {
-    id: "EXP-001",
-    name: "Базовая модель GPT-4",
-    hypothesisId: "HYP-042",
-    hypothesisTitle: "LLM для поддержки клиентов",
-    status: "running",
-    progress: 87,
-    accuracy: 94.2,
-    startDate: "2025-01-15",
-    duration: "2ч 15м",
-    owner: "Иван Петров",
-    gpuHours: 2.25,
-    cost: 45.5,
+const statusConfig: Record<string, {
+  label: string
+  icon: any
+  variant: "default" | "destructive" | "secondary"
+  color: string
+}> = {
+  queued: {
+    label: "В очереди",
+    icon: Clock,
+    variant: "secondary" as const,
+    color: "text-muted-foreground",
   },
-  {
-    id: "EXP-002",
-    name: "Fine-tuned LLaMA 3.1",
-    hypothesisId: "HYP-042",
-    hypothesisTitle: "LLM для поддержки клиентов",
-    status: "completed",
-    progress: 100,
-    accuracy: 96.8,
-    startDate: "2025-01-14",
-    duration: "4ч 32м",
-    owner: "Иван Петров",
-    gpuHours: 4.53,
-    cost: 90.6,
-  },
-  {
-    id: "EXP-003",
-    name: "RAG с векторными эмбеддингами",
-    hypothesisId: "HYP-051",
-    hypothesisTitle: "База знаний RAG",
-    status: "running",
-    progress: 45,
-    accuracy: 89.1,
-    startDate: "2025-01-16",
-    duration: "1ч 8м",
-    owner: "Мария Сидорова",
-    gpuHours: 1.13,
-    cost: 22.6,
-  },
-  {
-    id: "EXP-004",
-    name: "Модель обнаружения аномалий v1",
-    hypothesisId: "HYP-038",
-    hypothesisTitle: "ML обнаружение мошенничества",
-    status: "completed",
-    progress: 100,
-    accuracy: 92.5,
-    startDate: "2025-01-13",
-    duration: "3ч 45м",
-    owner: "Алексей Смирнов",
-    gpuHours: 3.75,
-    cost: 75.0,
-  },
-  {
-    id: "EXP-005",
-    name: "Модель обнаружения аномалий v2",
-    hypothesisId: "HYP-038",
-    hypothesisTitle: "ML обнаружение мошенничества",
-    status: "failed",
-    progress: 68,
-    startDate: "2025-01-15",
-    duration: "1ч 52м",
-    owner: "Алексей Смирнов",
-    gpuHours: 1.87,
-    cost: 37.4,
-  },
-  {
-    id: "EXP-006",
-    name: "Ансамбль моделей",
-    hypothesisId: "HYP-038",
-    hypothesisTitle: "ML обнаружение мошенничества",
-    status: "paused",
-    progress: 32,
-    accuracy: 88.3,
-    startDate: "2025-01-16",
-    duration: "0ч 45м",
-    owner: "Алексей Смирнов",
-    gpuHours: 0.75,
-    cost: 15.0,
-  },
-]
-
-const statusConfig = {
   running: {
     label: "Выполняется",
     icon: PlayCircle,
@@ -142,8 +55,8 @@ const statusConfig = {
     variant: "destructive" as const,
     color: "text-destructive",
   },
-  paused: {
-    label: "Приостановлен",
+  stopped: {
+    label: "Остановлен",
     icon: PauseCircle,
     variant: "secondary" as const,
     color: "text-muted-foreground",
@@ -154,21 +67,39 @@ export function ExperimentsGrid() {
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [experiments, setExperiments] = useState<Experiment[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const filteredExperiments = mockExperiments.filter((exp) => {
+  useEffect(() => {
+    loadExperiments()
+  }, [])
+
+  const loadExperiments = async () => {
+    try {
+      setLoading(true)
+      const response = await api.experiments.getExperiments()
+      setExperiments(response.data)
+    } catch (error) {
+      console.error('Ошибка загрузки экспериментов:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const filteredExperiments = experiments.filter((exp) => {
     const matchesSearch =
       exp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      exp.hypothesisTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      exp.variant.toLowerCase().includes(searchQuery.toLowerCase()) ||
       exp.id.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesStatus = statusFilter === "all" || exp.status === statusFilter
     return matchesSearch && matchesStatus
   })
 
   const stats = {
-    total: mockExperiments.length,
-    running: mockExperiments.filter((e) => e.status === "running").length,
-    completed: mockExperiments.filter((e) => e.status === "completed").length,
-    failed: mockExperiments.filter((e) => e.status === "failed").length,
+    total: experiments.length,
+    running: experiments.filter((e) => e.status === "running").length,
+    completed: experiments.filter((e) => e.status === "completed").length,
+    failed: experiments.filter((e) => e.status === "failed").length,
   }
 
   return (
@@ -235,10 +166,11 @@ export function ExperimentsGrid() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
+                <SelectItem value="queued">В очереди</SelectItem>
                 <SelectItem value="running">Выполняется</SelectItem>
                 <SelectItem value="completed">Завершен</SelectItem>
                 <SelectItem value="failed">Ошибка</SelectItem>
-                <SelectItem value="paused">Приостановлен</SelectItem>
+                <SelectItem value="stopped">Остановлен</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -246,8 +178,19 @@ export function ExperimentsGrid() {
 
         {/* Experiments Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredExperiments.map((exp) => {
-            const StatusIcon = statusConfig[exp.status].icon
+          {loading ? (
+            <div className="col-span-full text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-lg font-medium text-foreground">Загрузка экспериментов...</p>
+            </div>
+          ) : filteredExperiments.map((exp) => {
+            const statusInfo = statusConfig[exp.status] || {
+              label: "Неизвестно",
+              icon: HelpCircle,
+              variant: "secondary" as const,
+              color: "text-muted-foreground",
+            }
+            const StatusIcon = statusInfo.icon
             return (
               <Card
                 key={exp.id}
@@ -259,9 +202,9 @@ export function ExperimentsGrid() {
                     <div className="space-y-1 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono text-muted-foreground">{exp.id}</span>
-                        <Badge variant={statusConfig[exp.status].variant} className="text-xs gap-1">
+                        <Badge variant={statusInfo.variant} className="text-xs gap-1">
                           <StatusIcon className="h-3 w-3" />
-                          {statusConfig[exp.status].label}
+                          {statusInfo.label}
                         </Badge>
                       </div>
                       <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
@@ -270,52 +213,42 @@ export function ExperimentsGrid() {
                     </div>
                   </div>
 
-                  {/* Hypothesis Link */}
+                  {/* Description */}
                   <div className="text-xs text-muted-foreground">
-                    <span className="font-mono">{exp.hypothesisId}</span> • {exp.hypothesisTitle}
+                    {exp.variant}
                   </div>
 
                   {/* Progress */}
-                  {exp.status !== "failed" && (
+                  {exp.status !== "failed" && exp.status !== "completed" && (
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground">Прогресс</span>
-                        <span className="text-foreground font-medium">{exp.progress}%</span>
+                        <span className="text-foreground font-medium">
+                          {exp.status === "running" ? "Выполняется..." : "Ожидание..."}
+                        </span>
                       </div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full bg-primary transition-all" style={{ width: `${exp.progress}%` }} />
+                        <div className="h-full bg-primary transition-all animate-pulse" style={{ width: exp.status === "running" ? "60%" : "20%" }} />
                       </div>
                     </div>
                   )}
 
                   {/* Metrics */}
                   <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border/50">
-                    {exp.accuracy && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Точность</p>
-                        <div className="flex items-center gap-1">
-                          <p className="text-sm font-semibold text-foreground">{exp.accuracy}%</p>
-                          {exp.accuracy > 90 ? (
-                            <TrendingUp className="h-3 w-3 text-accent" />
-                          ) : (
-                            <TrendingDown className="h-3 w-3 text-destructive" />
-                          )}
-                        </div>
-                      </div>
-                    )}
                     <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">Длительность</p>
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-3 w-3 text-muted-foreground" />
-                        <p className="text-sm font-semibold text-foreground">{exp.duration}</p>
-                      </div>
+                      <p className="text-xs text-muted-foreground">Модель</p>
+                      <p className="text-sm font-semibold text-foreground">{exp.modelApproach}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">GPU</p>
+                      <p className="text-sm font-semibold text-foreground">{exp.gpuHoursUsed}ч</p>
                     </div>
                   </div>
 
                   {/* Footer */}
                   <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
-                    <span className="text-muted-foreground">{exp.owner}</span>
-                    <span className="text-muted-foreground">${exp.cost.toFixed(2)}</span>
+                    <span className="text-muted-foreground">{exp.createdBy.name}</span>
+                    <span className="text-muted-foreground">{exp.cost} {exp.currency}</span>
                   </div>
                 </div>
               </Card>
@@ -335,7 +268,12 @@ export function ExperimentsGrid() {
       </div>
 
       {/* Dialog */}
-      <ExperimentDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} mode="create" />
+      <ExperimentDialog 
+        open={createDialogOpen} 
+        onOpenChange={setCreateDialogOpen} 
+        mode="create" 
+        onSuccess={loadExperiments}
+      />
     </>
   )
 }

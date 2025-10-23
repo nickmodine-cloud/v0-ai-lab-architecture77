@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { api } from "@/lib/api"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +16,7 @@ interface ExperimentDialogProps {
   hypothesisId?: string
   mode?: "create" | "edit"
   initialData?: any
+  onSuccess?: () => void
 }
 
 export function ExperimentDialog({
@@ -23,21 +25,72 @@ export function ExperimentDialog({
   hypothesisId,
   mode = "create",
   initialData,
+  onSuccess,
 }: ExperimentDialogProps) {
   const [formData, setFormData] = useState({
-    name: initialData?.name || "",
+    title: initialData?.title || "",
     description: initialData?.description || "",
     hypothesisId: hypothesisId || initialData?.hypothesisId || "",
-    model: initialData?.model || "",
-    parameters: initialData?.parameters || "",
+    model: initialData?.model || "GPT-3.5",
+    parameters: initialData?.parameters || "{}",
     dataset: initialData?.dataset || "",
-    gpuType: initialData?.gpuType || "A100",
-    estimatedDuration: initialData?.estimatedDuration || "",
+    gpuType: initialData?.gpuType || "NVIDIA T4",
+    expectedDuration: initialData?.expectedDuration || "",
   })
+  const [loading, setLoading] = useState(false)
+  const [hypotheses, setHypotheses] = useState<any[]>([])
+  const [loadingHypotheses, setLoadingHypotheses] = useState(false)
 
-  const handleSubmit = () => {
-    console.log("[v0] Submitting experiment:", formData)
-    onOpenChange(false)
+  useEffect(() => {
+    if (open && mode === "create") {
+      loadHypotheses()
+    }
+  }, [open, mode])
+
+  const loadHypotheses = async () => {
+    try {
+      setLoadingHypotheses(true)
+      const response = await api.hypotheses.getHypotheses({ limit: 100 })
+      setHypotheses(response.data || [])
+    } catch (error) {
+      console.error('Ошибка загрузки гипотез:', error)
+    } finally {
+      setLoadingHypotheses(false)
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (!formData.title || !formData.description) {
+      alert('Название и описание обязательны')
+      return
+    }
+
+    if (!formData.hypothesisId) {
+      alert('Выберите гипотезу для эксперимента')
+      return
+    }
+
+    try {
+      setLoading(true)
+      await api.experiments.createExperiment({
+        title: formData.title,
+        description: formData.description,
+        model: formData.model,
+        gpuType: formData.gpuType,
+        parameters: formData.parameters,
+        dataset: formData.dataset,
+        expectedDuration: formData.expectedDuration,
+        hypothesisId: formData.hypothesisId || null,
+      })
+      
+      onOpenChange(false)
+      onSuccess?.()
+    } catch (error) {
+      console.error('Ошибка создания эксперимента:', error)
+      alert('Ошибка создания эксперимента')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -56,8 +109,8 @@ export function ExperimentDialog({
             <Input
               id="exp-name"
               placeholder="Например: Базовая модель GPT-4"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               className="glass"
             />
           </div>
@@ -71,6 +124,36 @@ export function ExperimentDialog({
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="glass min-h-[100px]"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="exp-hypothesis">Гипотеза *</Label>
+            <Select 
+              value={formData.hypothesisId} 
+              onValueChange={(value) => setFormData({ ...formData, hypothesisId: value })}
+              disabled={!!hypothesisId || loadingHypotheses}
+            >
+              <SelectTrigger className="glass">
+                <SelectValue placeholder={loadingHypotheses ? "Загрузка гипотез..." : "Выберите гипотезу"} />
+              </SelectTrigger>
+              <SelectContent>
+                {hypotheses.map((hyp) => (
+                  <SelectItem key={hyp.id} value={hyp.id}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{hyp.title}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {hyp.stage} • {hyp.priority}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {hypothesisId && (
+              <p className="text-xs text-muted-foreground">
+                Гипотеза предварительно выбрана
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -134,18 +217,20 @@ export function ExperimentDialog({
             <Input
               id="exp-duration"
               placeholder="Например: 2-3 часа"
-              value={formData.estimatedDuration}
-              onChange={(e) => setFormData({ ...formData, estimatedDuration: e.target.value })}
+              value={formData.expectedDuration}
+              onChange={(e) => setFormData({ ...formData, expectedDuration: e.target.value })}
               className="glass"
             />
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-4 border-t border-border/50">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Отмена
           </Button>
-          <Button onClick={handleSubmit}>{mode === "create" ? "Создать эксперимент" : "Сохранить изменения"}</Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading ? "Создание..." : mode === "create" ? "Создать эксперимент" : "Сохранить изменения"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

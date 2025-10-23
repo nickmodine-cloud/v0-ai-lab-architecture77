@@ -2,18 +2,19 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { MoreVertical, Clock, TrendingUp, AlertCircle, CheckCircle2, Sparkles, Plus } from "lucide-react"
-import Link from "next/link"
+import { MoreVertical, Clock, TrendingUp, AlertCircle, CheckCircle2, Sparkles, Plus, Loader2 } from "lucide-react"
 import { HypothesisWizardDialog } from "./hypothesis-wizard-dialog"
+import { api } from "@/lib/api"
+import { eventBus } from "@/lib/event-bus"
 
-type Priority = "Критический" | "Высокий" | "Средний" | "Низкий"
-type Stage = "Идея" | "Скопинг" | "Оценка" | "Эксперимент" | "Продакшен" | "Архив"
+type Priority = "critical" | "high" | "medium" | "low"
+type Stage = "backlog" | "ideation" | "scoping" | "prioritization" | "experimentation" | "evaluation" | "scaling" | "production" | "archived"
 
 interface Hypothesis {
   id: string
@@ -21,127 +22,172 @@ interface Hypothesis {
   description: string
   priority: Priority
   stage: Stage
-  assignee: {
-    name: string
-    avatar: string
-    initials: string
-  }
-  metrics: {
-    experiments: number
-    successRate?: number
-    daysInStage: number
-  }
+  owner: string
   tags: string[]
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+  creator?: {
+    id: string
+    name: string
+    email: string
+    role: string
+    status: string
+    experiments: number
+  }
 }
 
-const initialHypotheses: Hypothesis[] = [
-  {
-    id: "HYP-042",
-    title: "LLM для автоматизации поддержки клиентов",
-    description: "Внедрение чат-бота на базе GPT-4 для обработки запросов первого уровня",
-    priority: "Критический",
-    stage: "Оценка",
-    assignee: { name: "Сара Чен", avatar: "", initials: "СЧ" },
-    metrics: { experiments: 3, successRate: 72, daysInStage: 5 },
-    tags: ["NLP", "Поддержка клиентов"],
-  },
-  {
-    id: "HYP-038",
-    title: "ML система обнаружения мошенничества",
-    description:
-      "Создание системы обнаружения мошенничества в реальном времени с использованием алгоритмов обнаружения аномалий",
-    priority: "Высокий",
-    stage: "Скопинг",
-    assignee: { name: "Маркус Джонсон", avatar: "", initials: "МД" },
-    metrics: { experiments: 0, daysInStage: 12 },
-    tags: ["Безопасность", "ML"],
-  },
-  {
-    id: "HYP-051",
-    title: "База знаний на основе RAG",
-    description: "Создание внутренней системы поиска знаний с использованием архитектуры RAG",
-    priority: "Средний",
-    stage: "Идея",
-    assignee: { name: "Эмили Родригес", avatar: "", initials: "ЭР" },
-    metrics: { experiments: 0, daysInStage: 3 },
-    tags: ["RAG", "Внутренние инструменты"],
-  },
-  {
-    id: "HYP-029",
-    title: "Дашборд прогнозной аналитики",
-    description: "ML-прогнозирование бизнес-метрик",
-    priority: "Высокий",
-    stage: "Эксперимент",
-    assignee: { name: "Дэвид Ким", avatar: "", initials: "ДК" },
-    metrics: { experiments: 8, successRate: 65, daysInStage: 18 },
-    tags: ["Аналитика", "Прогнозирование"],
-  },
-  {
-    id: "HYP-015",
-    title: "Конвейер анализа тональности",
-    description: "Автоматическое отслеживание тональности отзывов клиентов",
-    priority: "Средний",
-    stage: "Продакшен",
-    assignee: { name: "Лиза Ванг", avatar: "", initials: "ЛВ" },
-    metrics: { experiments: 12, successRate: 89, daysInStage: 45 },
-    tags: ["NLP", "Аналитика"],
-  },
-  {
-    id: "HYP-033",
-    title: "Модель классификации изображений",
-    description: "Компьютерное зрение для категоризации продуктов",
-    priority: "Низкий",
-    stage: "Оценка",
-    assignee: { name: "Алекс Тернер", avatar: "", initials: "АТ" },
-    metrics: { experiments: 2, successRate: 58, daysInStage: 8 },
-    tags: ["Компьютерное зрение"],
-  },
-  {
-    id: "HYP-047",
-    title: "Рекомендательная система v2",
-    description: "Коллаборативная фильтрация для персонализированных рекомендаций",
-    priority: "Высокий",
-    stage: "Скопинг",
-    assignee: { name: "Сара Чен", avatar: "", initials: "СЧ" },
-    metrics: { experiments: 0, daysInStage: 6 },
-    tags: ["Рекомендации", "ML"],
-  },
-  {
-    id: "HYP-019",
-    title: "Интеграция голосового ассистента",
-    description: "Распознавание речи и NLU для голосовых команд",
-    priority: "Средний",
-    stage: "Идея",
-    assignee: { name: "Маркус Джонсон", avatar: "", initials: "МД" },
-    metrics: { experiments: 0, daysInStage: 2 },
-    tags: ["Голос", "NLP"],
-  },
-]
-
-const stages: Stage[] = ["Идея", "Скопинг", "Оценка", "Эксперимент", "Продакшен", "Архив"]
-
-const stageConfig = {
-  Идея: { color: "text-chart-5", icon: Sparkles },
-  Скопинг: { color: "text-chart-4", icon: AlertCircle },
-  Оценка: { color: "text-chart-2", icon: TrendingUp },
-  Эксперимент: { color: "text-chart-1", icon: Clock },
-  Продакшен: { color: "text-chart-3", icon: CheckCircle2 },
-  Архив: { color: "text-muted-foreground", icon: Clock },
-}
+// Убираем статичные стадии - будем загружать из админки
 
 const priorityVariant = {
-  Критический: "destructive" as const,
-  Высокий: "default" as const,
-  Средний: "secondary" as const,
-  Низкий: "outline" as const,
+  critical: "destructive" as const,
+  high: "default" as const,
+  medium: "secondary" as const,
+  low: "outline" as const,
 }
 
-export function HypothesisKanban() {
-  const [hypotheses, setHypotheses] = useState<Hypothesis[]>(initialHypotheses)
+const priorityNames = {
+  critical: "Критический",
+  high: "Высокий", 
+  medium: "Средний",
+  low: "Низкий"
+}
+
+interface HypothesisKanbanProps {
+  onRefresh?: () => void
+  onHypothesisClick?: (hypothesisId: string) => void
+}
+
+export function HypothesisKanban({ onRefresh, onHypothesisClick }: HypothesisKanbanProps) {
+  const [hypotheses, setHypotheses] = useState<Hypothesis[]>([])
+  const [stages, setStages] = useState<Stage[]>([])
+  const [stageConfig, setStageConfig] = useState<Record<string, any>>({})
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [selectedHypothesis, setSelectedHypothesis] = useState<Hypothesis | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadData()
+    
+    // Слушаем изменения стадий из админки
+    const handleStagesUpdate = (data) => {
+      if (data.type === 'stageUpdated') {
+        loadStages()
+      }
+    }
+    
+    eventBus.on('stageUpdated', handleStagesUpdate)
+    eventBus.on('kanbanUpdate', handleStagesUpdate)
+    
+    return () => {
+      eventBus.off('stageUpdated', handleStagesUpdate)
+      eventBus.off('kanbanUpdate', handleStagesUpdate)
+    }
+  }, [])
+
+  const loadData = async () => {
+    await Promise.all([loadHypotheses(), loadStages()])
+  }
+
+  // Перезагружаем данные при изменении стадий
+  useEffect(() => {
+    if (stages.length > 0) {
+      loadHypotheses()
+    }
+  }, [stages])
+
+  const loadStages = async () => {
+    try {
+      // Используем API клиент
+      const activeStages = await api.admin.getStages()
+      
+      setStages(activeStages.map((stage: any) => stage.code as Stage))
+      
+      // Создаем конфигурацию стадий
+      const config: Record<string, any> = {}
+      activeStages.forEach((stage: any) => {
+        config[stage.code] = {
+          color: getStageColor(stage.code),
+          icon: getStageIcon(stage.code),
+          name: stage.name
+        }
+      })
+      setStageConfig(config)
+    } catch (err) {
+      console.error('Ошибка загрузки стадий:', err)
+      // Fallback к статичным стадиям
+      const fallbackStages: Stage[] = ["backlog", "ideation", "scoping", "experimentation", "evaluation", "production", "archived"]
+      setStages(fallbackStages)
+      setStageConfig({
+        backlog: { color: "text-muted-foreground", icon: Clock, name: "Бэклог" },
+        ideation: { color: "text-chart-5", icon: Sparkles, name: "Идея" },
+        scoping: { color: "text-chart-4", icon: AlertCircle, name: "Скопинг" },
+        experimentation: { color: "text-chart-1", icon: Clock, name: "Экспериментирование" },
+        evaluation: { color: "text-chart-2", icon: TrendingUp, name: "Оценка" },
+        production: { color: "text-chart-3", icon: CheckCircle2, name: "Продакшен" },
+        archived: { color: "text-muted-foreground", icon: Clock, name: "Архив" },
+      })
+    }
+  }
+
+  const getStageColor = (code: string) => {
+    const colors: Record<string, string> = {
+      backlog: "text-muted-foreground",
+      ideation: "text-chart-5",
+      scoping: "text-chart-4",
+      experimentation: "text-chart-1",
+      evaluation: "text-chart-2",
+      production: "text-chart-3",
+      archived: "text-muted-foreground",
+    }
+    return colors[code] || "text-muted-foreground"
+  }
+
+  const getStageIcon = (code: string) => {
+    const icons: Record<string, any> = {
+      backlog: Clock,
+      ideation: Sparkles,
+      scoping: AlertCircle,
+      experimentation: Clock,
+      evaluation: TrendingUp,
+      production: CheckCircle2,
+      archived: Clock,
+    }
+    return icons[code] || Clock
+  }
+
+  const loadHypotheses = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await api.hypotheses.getAll()
+      
+      // Преобразуем данные из API в нужный формат
+      const allHypotheses: Hypothesis[] = response.data.map((hyp: any) => ({
+        id: hyp.id,
+        title: hyp.title,
+        description: hyp.description,
+        priority: hyp.priority,
+        stage: hyp.stage,
+        owner: hyp.owner || 'Неизвестно',
+        tags: hyp.tags || [],
+        createdAt: hyp.createdAt,
+        updatedAt: hyp.updatedAt,
+        createdBy: hyp.createdBy,
+        creator: hyp.creator
+      }))
+      
+      setHypotheses(allHypotheses)
+    } catch (err) {
+      console.error('Ошибка загрузки гипотез:', err)
+      setError('Ошибка загрузки гипотез')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleDragStart = (e: React.DragEvent, hypothesisId: string) => {
     setDraggedItem(hypothesisId)
@@ -153,16 +199,25 @@ export function HypothesisKanban() {
     e.dataTransfer.dropEffect = "move"
   }
 
-  const handleDrop = (e: React.DragEvent, targetStage: Stage) => {
+  const handleDrop = async (e: React.DragEvent, targetStage: Stage) => {
     e.preventDefault()
     if (!draggedItem) return
 
-    setHypotheses((prev) =>
-      prev.map((hyp) =>
-        hyp.id === draggedItem ? { ...hyp, stage: targetStage, metrics: { ...hyp.metrics, daysInStage: 0 } } : hyp,
-      ),
-    )
-    setDraggedItem(null)
+    try {
+      // Обновляем гипотезу через API
+      await api.hypotheses.moveHypothesis(draggedItem, targetStage)
+
+      // Обновляем локальное состояние
+      setHypotheses((prev) =>
+        prev.map((hyp) =>
+          hyp.id === draggedItem ? { ...hyp, stage: targetStage } : hyp,
+        ),
+      )
+      setDraggedItem(null)
+    } catch (err) {
+      console.error('Ошибка перемещения гипотезы:', err)
+      setError('Ошибка перемещения гипотезы')
+    }
   }
 
   const getHypothesesByStage = (stage: Stage) => {
@@ -174,6 +229,36 @@ export function HypothesisKanban() {
     e.stopPropagation()
     setSelectedHypothesis(hypothesis)
     setEditDialogOpen(true)
+  }
+
+  const handleDelete = async (hypothesisId: string) => {
+    try {
+      await api.hypotheses.deleteHypothesis(hypothesisId)
+      setHypotheses((prev) => prev.filter((hyp) => hyp.id !== hypothesisId))
+    } catch (err) {
+      console.error('Ошибка удаления гипотезы:', err)
+      setError('Ошибка удаления гипотезы')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>Загрузка гипотез...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-destructive mb-4">{error}</p>
+        <Button onClick={loadHypotheses}>Попробовать снова</Button>
+      </div>
+    )
   }
 
   return (
@@ -197,7 +282,7 @@ export function HypothesisKanban() {
           return (
             <div
               key={stage}
-              className="flex-shrink-0 w-[340px]"
+              className="flex-shrink-0 w-[500px]"
               onDragOver={handleDragOver}
               onDrop={(e) => handleDrop(e, stage)}
             >
@@ -205,7 +290,7 @@ export function HypothesisKanban() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <StageIcon className={`h-5 w-5 ${stageConfig[stage].color}`} />
-                    <h3 className="font-semibold text-foreground">{stage}</h3>
+                    <h3 className="font-semibold text-foreground">{stageConfig[stage].name}</h3>
                     <Badge variant="secondary" className="text-xs">
                       {stageHypotheses.length}
                     </Badge>
@@ -214,11 +299,12 @@ export function HypothesisKanban() {
 
                 <div className="space-y-3">
                   {stageHypotheses.map((hypothesis) => (
-                    <Link key={hypothesis.id} href={`/hypotheses/${hypothesis.id}`}>
+                    <div key={hypothesis.id}>
                       <Card
                         draggable
                         onDragStart={(e) => handleDragStart(e, hypothesis.id)}
-                        className={`glass glass-highlight p-4 space-y-3 cursor-move transition-all hover:scale-[1.02] hover:shadow-lg border-border/50 ${
+                        onClick={() => onHypothesisClick?.(hypothesis.id)}
+                        className={`glass glass-highlight p-6 space-y-5 cursor-pointer transition-all hover:scale-[1.02] hover:shadow-lg border-border/50 ${
                           draggedItem === hypothesis.id ? "opacity-50" : ""
                         }`}
                       >
@@ -226,11 +312,11 @@ export function HypothesisKanban() {
                           <div className="space-y-1 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-mono text-muted-foreground">{hypothesis.id}</span>
-                              <Badge variant={priorityVariant[hypothesis.priority]} className="text-xs">
-                                {hypothesis.priority}
-                              </Badge>
+                            <Badge variant={priorityVariant[hypothesis.priority]} className="text-xs">
+                              {priorityNames[hypothesis.priority]}
+                            </Badge>
                             </div>
-                            <h4 className="font-semibold text-sm text-foreground leading-tight">{hypothesis.title}</h4>
+                            <h4 className="font-semibold text-lg text-foreground leading-tight">{hypothesis.title}</h4>
                           </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
@@ -239,7 +325,7 @@ export function HypothesisKanban() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem>Просмотр деталей</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => onHypothesisClick?.(hypothesis.id)}>Просмотр деталей</DropdownMenuItem>
                               <DropdownMenuItem onClick={(e) => handleEdit(hypothesis, e as any)}>
                                 Редактировать
                               </DropdownMenuItem>
@@ -249,7 +335,7 @@ export function HypothesisKanban() {
                           </DropdownMenu>
                         </div>
 
-                        <p className="text-xs text-muted-foreground line-clamp-2">{hypothesis.description}</p>
+                        <p className="text-base text-muted-foreground line-clamp-4">{hypothesis.description}</p>
 
                         <div className="flex flex-wrap gap-1">
                           {hypothesis.tags.map((tag) => (
@@ -263,28 +349,15 @@ export function HypothesisKanban() {
                           <div className="flex items-center gap-3 text-xs text-muted-foreground">
                             <div className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
-                              <span>{hypothesis.metrics.daysInStage}д</span>
+                              <span>{Math.floor((Date.now() - new Date(hypothesis.updatedAt).getTime()) / (1000 * 60 * 60 * 24))}д</span>
                             </div>
-                            {hypothesis.metrics.experiments > 0 && (
-                              <div className="flex items-center gap-1">
-                                <TrendingUp className="h-3 w-3" />
-                                <span>{hypothesis.metrics.experiments} эксп</span>
-                              </div>
-                            )}
-                            {hypothesis.metrics.successRate && (
-                              <div className="flex items-center gap-1 text-chart-3">
-                                <CheckCircle2 className="h-3 w-3" />
-                                <span>{hypothesis.metrics.successRate}%</span>
-                              </div>
-                            )}
                           </div>
-                          <Avatar className="h-6 w-6">
-                            <AvatarImage src={hypothesis.assignee.avatar || "/placeholder.svg"} />
-                            <AvatarFallback className="text-xs">{hypothesis.assignee.initials}</AvatarFallback>
-                          </Avatar>
+                          <div className="text-xs text-muted-foreground">
+                            {hypothesis.owner}
+                          </div>
                         </div>
                       </Card>
-                    </Link>
+                    </div>
                   ))}
                 </div>
               </div>

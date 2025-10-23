@@ -2,6 +2,8 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
+import { Toaster } from "sonner"
+import { SettingsProvider } from "@/lib/settings-context"
 import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
@@ -19,9 +21,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
+      <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
+        <SettingsProvider>
+          {children}
+        </SettingsProvider>
         <Analytics />
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   )
